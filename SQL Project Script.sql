@@ -12,7 +12,7 @@ GO -- Select the Auction Schema
 
 IF (EXISTS (SELECT * 
                  FROM sys.TABLES 
-                 WHERE name in ('BidInfo', 'ProductInfo', 'ThresholdSet') 
+                 WHERE name in ('BidInfo', 'ProductInfo', 'ThresholdSet') -- Checking if the tables already exist
                  and schema_id = 10
                 ))
 BEGIN
@@ -66,13 +66,13 @@ INSERT INTO [Auction].[ThresholdSet] ([Setting], [BidLimit]) VALUES ('MinIncreas
 INSERT INTO [Auction].[ThresholdSet] ([Setting], [BidLimit]) VALUES ('MaxIncreaseLimit', CAST(1 AS real))
 
 END
-
+GO -- Allows the other batch to run
 /* STORED PROCEDURES 
-
 uspAddProductToAuction - Store Procedure that adds elegible products for auction */
 
 CREATE OR ALTER PROCEDURE [Auction].[uspAddProductToAuction]
-(   @ProductID INT = NULL,
+(  
+     @ProductID INT = NULL,
     @ExpireDate DATETIME = NULL,
     @InitialBidPrice MONEY = NULL
 )
@@ -81,7 +81,24 @@ AS
 
 DECLARE @SellEndDate DATETIME = NULL
 DECLARE @DiscontinuedDate DATETIME = NULL
+DECLARE @MakeFlag BIT = NULL
+DECLARE @InitialListPrice MONEY = NULL
 
+BEGIN TRY
+        SELECT
+            @MakeFlag = [MakeFlag],
+            @SellEndDate = [SellEndDate],
+            @DiscontinuedDate = [DiscontinuedDate],
+            @InitialListPrice = [ListPrice]
+        FROM (
+            SELECT 
+                [MakeFlag],
+                [SellEndDate],
+                [DiscontinuedDate],
+                [ListPrice]
+            FROM [Production].[Product]
+            WHERE [ProductID] = @ProductID
+        ) AS [Production_Aux]
 
 -- Check if ProductID is not valid
 IF @ProductID IS NULL
@@ -94,8 +111,8 @@ IF @ProductID IS NULL
 ELSE IF NOT EXISTS (
     SELECT [ProductID]
     FROM [Production].[Product]
-    WHERE [ProductID] = @ProductID
-)
+    WHERE [ProductID] = @ProductID)
+    
     BEGIN
         DECLARE @errormessage2 VARCHAR(150) = 'Error: ProductID does not exist in the catalog.';
         THROW 50001, @errormessage2, 0;
@@ -106,8 +123,8 @@ ELSE IF EXISTS (
     SELECT [ProductID]
     FROM [Auction].[ProductInfo]
     WHERE [ProductID] = @ProductID
-    AND [Active] = 1
-)
+    AND [Active] = 1)
+    
     BEGIN
         DECLARE @errormessage3 VARCHAR(150) = 'Error: This product is already being auctioned.';
         THROW 50001, @errormessage3, 0;
@@ -119,20 +136,35 @@ ELSE IF @SellEndDate IS NOT NULL AND @DiscontinuedDate IS NOT NULL
         THROW 50001, @errormessage4, 0;
     END
 
-ELSE
+ELSE 
     BEGIN
     -- Set the default value for the @ExpireDate
     SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE())); -- Decidir se mantemos o GETDATE ou a data de 2019
-    IF NOT(@ExpireDate BETWEEN CONVERT(DATETIME, CONCAT(YEAR(GETDATE()),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(GETDATE()),'1201'), 112))
-    BEGIN
-        DECLARE @errormessage5 VARCHAR(150) = 'Error: The timeframe of the auction is invalid.';
-        THROW 50001, @errormessage5, 0;
+    IF NOT(@ExpireDate BETWEEN CONVERT(DATETIME, CONCAT(YEAR(GETDATE()),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(GETDATE()),'1207'), 112))
+        BEGIN
+            DECLARE @errormessage5 VARCHAR(150) = 'Error: The timeframe of the auction is invalid.';
+            THROW 50001, @errormessage5, 0;
+        END
+    
+    ELSE 
+        BEGIN
+            SELECT 
+                CASE WHEN @MakeFlag = 0
+                    THEN @InitialListPrice * 0.75
+                    ELSE @InitialListPrice * 0.5
+                END AS [InitialBidPrice]
+                FROM [Production].[Product]
+        END
     END
 
 
 
+        
 
-    END
+
+
+
+
 
 
 
