@@ -72,7 +72,7 @@ uspAddProductToAuction - Store Procedure that adds elegible products for auction
 
 CREATE OR ALTER PROCEDURE [Auction].[uspAddProductToAuction]
 (  
-     @ProductID INT = NULL,
+    @ProductID INT = NULL,
     @ExpireDate DATETIME = NULL,
     @InitialBidPrice MONEY = NULL
 )
@@ -85,88 +85,107 @@ DECLARE @MakeFlag BIT = NULL
 DECLARE @InitialListPrice MONEY = NULL
 
 BEGIN TRY
-        SELECT
-            @MakeFlag = [MakeFlag],
-            @SellEndDate = [SellEndDate],
-            @DiscontinuedDate = [DiscontinuedDate],
-            @InitialListPrice = [ListPrice]
-        FROM (
-            SELECT 
-                [MakeFlag],
-                [SellEndDate],
-                [DiscontinuedDate],
-                [ListPrice]
-            FROM [Production].[Product]
-            WHERE [ProductID] = @ProductID
+    SELECT
+    @MakeFlag = [MakeFlag],
+    @SellEndDate = [SellEndDate],
+    @DiscontinuedDate = [DiscontinuedDate],
+    @InitialListPrice = [ListPrice]
+    FROM (
+        SELECT 
+        [MakeFlag],
+        [SellEndDate],
+        [DiscontinuedDate],
+        [ListPrice]
+        FROM [Production].[Product]
+        WHERE [ProductID] = @ProductID
         ) AS [Production_Aux]
 
 -- Check if ProductID is not valid
-IF @ProductID IS NULL
-    BEGIN
-        DECLARE @errormessage1 VARCHAR(150) = 'Error: ProductID is not valid.';
-        THROW 50001, @errormessage1, 0;
-    END
+    IF @ProductID IS NULL
+        BEGIN
+            DECLARE @errormessage1 VARCHAR(150) = 'Error: ProductID is not valid.';
+            THROW 50001, @errormessage1, 0;
+        END
 
 -- Check if the ProductsID exists in Production
-ELSE IF NOT EXISTS (
-    SELECT [ProductID]
-    FROM [Production].[Product]
-    WHERE [ProductID] = @ProductID)
-    
-    BEGIN
-        DECLARE @errormessage2 VARCHAR(150) = 'Error: ProductID does not exist in the catalog.';
-        THROW 50001, @errormessage2, 0;
-    END
+    ELSE IF NOT EXISTS (
+        SELECT [ProductID]
+        FROM [Production].[Product]
+        WHERE [ProductID] = @ProductID)
+            BEGIN
+                DECLARE @errormessage2 VARCHAR(150) = 'Error: ProductID does not exist in the catalog.';
+                THROW 50001, @errormessage2, 0;
+            END
 
 -- Check if ProductID is currently being auctioned
-ELSE IF EXISTS (
-    SELECT [ProductID]
-    FROM [Auction].[ProductInfo]
-    WHERE [ProductID] = @ProductID
-    AND [Active] = 1)
-    
-    BEGIN
-        DECLARE @errormessage3 VARCHAR(150) = 'Error: This product is already being auctioned.';
-        THROW 50001, @errormessage3, 0;
-    END
+    ELSE IF EXISTS (
+        SELECT [ProductID]
+        FROM [Auction].[ProductInfo]
+        WHERE [ProductID] = @ProductID
+        AND [Active] = 1)
+            BEGIN
+                DECLARE @errormessage3 VARCHAR(150) = 'Error: This product is already being auctioned.';
+                THROW 50001, @errormessage3, 0;
+            END
 
-ELSE IF @SellEndDate IS NOT NULL AND @DiscontinuedDate IS NOT NULL
-    BEGIN
-        DECLARE @errormessage4 VARCHAR(150) = 'Error: This product is not being currently commercialized.';
-        THROW 50001, @errormessage4, 0;
-    END
+    ELSE IF @SellEndDate IS NOT NULL AND @DiscontinuedDate IS NOT NULL
+            BEGIN
+                DECLARE @errormessage4 VARCHAR(150) = 'Error: This product is not being currently commercialized.';
+                THROW 50001, @errormessage4, 0;
+            END
 
-ELSE 
-    BEGIN
-    -- Set the default value for the @ExpireDate
-    SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE())); -- Decidir se mantemos o GETDATE ou a data de 2019
-    IF NOT(@ExpireDate BETWEEN CONVERT(DATETIME, CONCAT(YEAR(GETDATE()),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(GETDATE()),'1207'), 112))
-        BEGIN
-            DECLARE @errormessage5 VARCHAR(150) = 'Error: The timeframe of the auction is invalid.';
-            THROW 50001, @errormessage5, 0;
-        END
-    
     ELSE 
         BEGIN
-            SELECT 
-                CASE WHEN @MakeFlag = 0
-                    THEN @InitialListPrice * 0.75
-                    ELSE @InitialListPrice * 0.5
-                END AS [InitialBidPrice]
-                FROM [Production].[Product]
+            -- Set the default value for the @ExpireDate
+            SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE())); -- Decidir se mantemos o GETDATE ou a data de 2019
+            BEGIN
+            IF NOT(@ExpireDate BETWEEN CONVERT(DATETIME, CONCAT(YEAR(GETDATE()),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(GETDATE()),'1207'), 112))
+                BEGIN
+                    DECLARE @errormessage5 VARCHAR(150) = 'Error: The timeframe of the auction is invalid.';
+                    THROW 50001, @errormessage5, 0;
+                END
+            ELSE 
+                BEGIN
+                    SELECT 
+                        CASE WHEN @MakeFlag = 0
+                        THEN @InitialListPrice * 0.75
+                        ELSE @InitialListPrice * 0.5
+                        END AS [InitialBidPrice]
+                        FROM [Production].Product
+                END
+            END
         END
-    END
+BEGIN
+BEGIN TRANSACTION  [InsertProduct]-- Insert Products into the Auction Product table
+    INSERT INTO [Auction].[ProductInfo]
+    (
+        [ProductID],
+        [ExpireDate],
+        [InitialBidPrice],
+        [InitialListPrice]
+
+    )
+    VALUES (
+        @ProductID, -- ProductID is a mandatory parameter
+        @ExpireDate, -- optional parameter
+        @InitialBidPrice, -- optional parameter
+        @InitialListPrice -- auxiliar parameter
+    );
+    SELECT @@TRANCOUNT AS OpenTransactions
+COMMIT TRANSACTION [InsertProduct]
+END
+END TRY
+BEGIN CATCH -- Deal with errors in the transaction
+    IF @@TRANCOUNT > 0 -- Check to see if the previous transaction is open
+        BEGIN
+            ROLLBACK TRANSACTION [InsertProduct] -- Undo all the inserts made by the transaction
+        END
+    ELSE 
+        BEGIN
+            PRINT ERROR_MESSAGE() -- Print the error message that is making the Catch block to run if there is no open transactions
+        END
+END CATCH
 
 
 
-        
 
-
-
-
-
-
-
-
-
-    
