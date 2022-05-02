@@ -386,6 +386,43 @@ BEGIN CATCH -- Deal with errors in the transaction
 END CATCH
 
 
+-- usp Remove product from auction
+GO
+CREATE OR ALTER PROCEDURE [Auction].[uspRemoveProductFromAuction]
 
+(   
+    @ProductID INT
+)
+AS
+BEGIN TRY
+    -- Check if product is currently being actioned
+    BEGIN
+        IF NOT EXISTS  (SELECT [ProductID] FROM [Auction].[ProductInfo] WHERE [Active] = 1 AND [ProductID] = @ProductID)
+            BEGIN
+                DECLARE @errormessage0 VARCHAR(100) = 'Error: Product inserted is not currently being auctioned.';
+                THROW 52001, @errormessage0, 0;
+            END
+            BEGIN
+                BEGIN TRANSACTION
+                    UPDATE [Auction].[ProductInfo]
+                    SET [Active] = 0,
+                        [AuctionRemoved] = 1
+                    WHERE [Active] = 1 AND [ProductID] = @ProductID
+                COMMIT TRANSACTION
+            END
+    END
+    RETURN
+END TRY
+BEGIN CATCH
+    IF @@ROWCOUNT > 0
+        BEGIN  
+            ROLLBACK TRANSACTION
+        END
+    ELSE    
+        BEGIN   
+            PRINT ERROR_MESSAGE()
+        END
+END CATCH
+GO
 
 
