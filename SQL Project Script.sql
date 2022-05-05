@@ -425,4 +425,72 @@ BEGIN CATCH
 END CATCH
 GO
 
+-- uspListBidsOffersHistory - 
+
+CREATE OR ALTER PROCEDURE [Auction].[uspListBidsOffersHistory]
+(
+    @CustomerID INT,
+    @StartTime DATETIME,
+    @StopTime DATETIME,
+    @Active BIT = 1
+)
+AS
+
+BEGIN TRY
+    BEGIN
+        IF NOT EXISTS (
+            SELECT @CustomerID
+            FROM [Auction].[BidInfo]
+            WHERE @CustomerID = [CustomerID]
+        )
+        BEGIN
+            DECLARE @errormessage0 VARCHAR(100) = 'Error: The inserted CustomerID has not made a bid.';
+            THROW 53001, @errormessage0, 0;
+        END
+        
+        ELSE IF @StartTime >= @StopTime
+            BEGIN
+                DECLARE @errormessage1 VARCHAR(100) = 'Error: The inserted StopTime has to be later than the StartTime.';
+                THROW 53002, @errormessage1, 0;
+            END
+
+        ELSE IF @Active = 1
+            BEGIN
+                SELECT [CustomerID],
+                        a_bi.[ProductID],
+                         a_bi.[AuctionProductID],
+                          [BidAmount],
+                           [BidTime],
+                            a_pi.[Active]
+                FROM [Auction].[BidInfo] AS a_bi
+                INNER JOIN [Auction].[ProductInfo] AS a_pi
+                ON a_bi.[AuctionProductID] = a_pi.[AuctionProductID]
+                WHERE [CustomerID] = @CustomerID AND ([BidTime] BETWEEN @StartTime AND @StopTime) AND [Active] = 1
+            END
+        ELSE
+            BEGIN
+                SELECT [CustomerID],
+                        a_bi.[ProductID],
+                         a_bi.[AuctionProductID],
+                          [BidAmount],
+                           [BidTime],
+                            a_pi.[Active]
+                FROM [Auction].[BidInfo] AS a_bi
+                INNER JOIN [Auction].[ProductInfo] AS a_pi
+                ON a_bi.[AuctionProductID] = a_pi.[AuctionProductID]
+                WHERE [CustomerID] = @CustomerID AND ([BidTime] BETWEEN @StartTime AND @StopTime)
+            END
+    END
+END TRY
+BEGIN CATCH -- Deal with errors in the transaction
+    IF @@TRANCOUNT > 0 -- Check to see if the previous transaction is open
+        BEGIN
+            ROLLBACK TRANSACTION [InsertBid] -- Undo all the inserts made by the transaction
+        END
+    ELSE 
+        BEGIN
+            PRINT ERROR_MESSAGE() -- Print the error message that is making the Catch block to run if there is no open transactions
+        END
+END CATCH
+
 
