@@ -1,6 +1,5 @@
-
-
-CREATE OR ALTER VIEW.BRICK AS
+CREATE OR ALTER VIEW Auction.RevenueSubtotal
+AS
 (
 SELECT SC.CustomerID, StoreID, BusinessEntityID, PB.AddressID, PA.City, SOH.SubTotal
 FROM Sales.Customer AS SC
