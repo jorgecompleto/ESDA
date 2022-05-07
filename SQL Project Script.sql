@@ -493,4 +493,15 @@ BEGIN CATCH -- Deal with errors in the transaction
         END
 END CATCH
 
+GO
+-- uspUpdateProductAuctionStatus
+CREATE OR ALTER PROCEDURE [Auction].[uspUpdateProductAuctionStatus]
+AS
+	-- Check for active auctions (Active = 1) and close the ones that have expired
+	UPDATE [Auction].[ProductInfo]
+	SET [Active] = 0
+	WHERE [Active] = 1 
+		AND GETDATE() > [ExpireDate];
+GO
+--------------------------------------------------------------------------------
 
