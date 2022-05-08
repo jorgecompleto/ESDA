@@ -1,716 +1,507 @@
---------------------------------------------------------------------------------
--- A Work Project, presented as part of the requirements for the course
--- Managing Relational & Non-Relational Databases 
--- 
--- Post-Graduation in Enterprise Data Science & Analytics from the 
--- NOVA – Information Management School
--- 
--- RELATIONAL DATA: 
--- STOCK CLEARANCE & BRICK AND MORTAR STORES
---
--- Francisco Costa, 20181393
--- João Gouveia, 20181399
--- Nuno Rocha, 20181407
--- Pedro Rivera, 20181411
---
---------------------------------------------------------------------------------
---
--- auction.sql Script
---
---------------------------------------------------------------------------------
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-USE [AdventureWorks]
-GO
---------------------------------------------------------------------------------
--- SCHEMA CONFIGURATION
---------------------------------------------------------------------------------
--- Create the Schema if it does not exist
---------------------------------------------------------------------------------
-IF NOT EXISTS (SELECT DB_NAME() AS dbname WHERE SCHEMA_ID('Auction') IS NOT NULL)
-	BEGIN
-	IF NOT EXISTS (SELECT TOP(1) * FROM sys.schemas WHERE name='Auction')
-	-- Create the Schema
-		BEGIN
-			PRINT 'The Schema Auction is missing, so it will be created with all the required tables.';
-			EXEC sp_executesql N'CREATE SCHEMA Auction AUTHORIZATION dbo';
-		END
-	END
+-- Selecting the Adventure Works database
+USE AdventureWorks2019
 GO
 
-IF (OBJECT_ID('Auction.ProductBid') IS NOT NULL)
-BEGIN 
-	DROP TABLE [Auction].[ProductBid]
-END
-GO
+-- Creating the Auction Schema
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'Auction') -- Checking if the Aucion Schema is not already created
+    BEGIN
+        EXEC ('CREATE SCHEMA [Auction]'); -- Create the Auction Schema
+    END
 
-IF (OBJECT_ID('Auction.Product') IS NOT NULL)
+GO -- Select the Auction Schema
+
+IF (EXISTS (SELECT * 
+                 FROM sys.TABLES 
+                 WHERE name in ('BidInfo', 'ProductInfo', 'ThresholdSet', 'BidDateRange') -- Checking if the tables already exist
+                 and schema_id = 10
+                ))
 BEGIN
-	DROP TABLE [Auction].[Product]
-END
-GO
+    DROP TABLE [Auction].[BidInfo]
+    DROP TABLE [Auction].[ProductInfo]
+    DROP TABLE [Auction].[ThresholdSet]
+    DROP TABLE [Auction].[BidDateRange]
+END   
 
-IF (OBJECT_ID('Auction.ThresholdsConfig') IS NOT NULL)
+/* Create the tables inside the Auction schema 
+
+TABLE PRODUCT - Save in this table the Products that are going to be up for Auction */
+
 BEGIN
-	DROP TABLE [Auction].[ThresholdsConfig]
-END
-GO
+    CREATE TABLE [Auction].[ProductInfo]
+    (   [AuctionProductID] [int] NOT NULL IDENTITY PRIMARY KEY,
+        [ProductID] [int] NOT NULL FOREIGN KEY REFERENCES [Production].[Product] ([ProductID]),
+        [ExpireDate] [datetime] NOT NULL,
+        [InitialListPrice] [money] NOT NULL,
+        [InitialBidPrice] [money] NOT NULL,
+        [Active] [bit] NOT NULL DEFAULT 1,
+        [AuctionRemoved] [bit] NOT NULL DEFAULT 0,
 
---------------------------------------------------------------------------------
--- TABLE CREATION
---------------------------------------------------------------------------------
--- Table Auction.Product
---------------------------------------------------------------------------------
+    ) ON [PRIMARY]
+    
+END
+
+-- TABLE BIDINFO - Save in this table every bid made by each Customer for each Product
+
+BEGIN  
+    CREATE TABLE [Auction].[BidInfo]
+    (   [AuctionProductID] [int] NOT NULL FOREIGN KEY REFERENCES [Auction].[ProductInfo] ([AuctionProductID]),
+        [ProductID] [int] NOT NULL FOREIGN KEY REFERENCES [Production].[Product] ([ProductID]),
+        [CustomerID] [int] NOT NULL FOREIGN KEY REFERENCES [Sales].[Customer] ([CustomerID]),
+        [BidAmount] [money] NOT NULL,
+        [BidTime] [datetime] NOT NULL,
+    
+    ) ON [PRIMARY]
+
+END
+
+-- TABLE THRESHOLDSSET - Contains the predefined thresholds for the mininum bid increase and the maximum bid limit
+
 BEGIN
-	CREATE TABLE [Auction].[Product]
-	(
-		[AuctionProductID] [int] NOT NULL IDENTITY PRIMARY KEY,
-		[ProductID] [int] NOT NULL,
-		[ExpireDate] [datetime] NULL,
-		[AuctionStatus] [bit] NOT NULL,
-		[Removed] [bit] NULL,
-		[InitialBidPrice] [money] NULL,
-		[InitialListPrice] [money] NULL,
-		[StandardCost] [money] NULL
-	) ON [PRIMARY]
+    CREATE TABLE [Auction].[ThresholdSet]
+    (   [Setting] [VARCHAR](70) NOT NULL,
+        [BidLimit] [FLOAT] NOT NULL,
+    
+    ) ON [PRIMARY]
 
-	ALTER TABLE [Auction].[Product]  WITH CHECK ADD  CONSTRAINT [FK_ProductAuction_Product] FOREIGN KEY([ProductID])
-	REFERENCES [Production].[Product] ([ProductID])
+INSERT INTO [Auction].[ThresholdSet] ([Setting], [BidLimit]) VALUES ('MinIncreaseBid', CAST(0.05 AS money))
+INSERT INTO [Auction].[ThresholdSet] ([Setting], [BidLimit]) VALUES ('MaxIncreaseLimit', CAST(1 AS real))
 
-	ALTER TABLE [Auction].[Product] ADD CONSTRAINT [DF_ProductAuction_AuctionStatus] DEFAULT ((1)) FOR [AuctionStatus]
-
-	ALTER TABLE [Auction].[Product] ADD CONSTRAINT [DF_ProductAuction_Removed] DEFAULT ((0)) FOR [Removed]
-
-	PRINT 'The Table Product was created on the Auction Schema.';
 END
 
---------------------------------------------------------------------------------
--- Table Auction.ProductBid
---------------------------------------------------------------------------------
+-- TABLE BIDDATERANGE - Contains the default bidding period when clients can bid for products
+
 BEGIN
-	CREATE TABLE [Auction].[ProductBid]
-	(
-		[AuctionProductID] [int] NOT NULL,
-		[ProductID] [int] NULL,
-		[CustomerID] [int] NULL,
-		[BidAmmount] [money] NULL,
-		[BidTimestamp] [datetime] NOT NULL
-	) ON [PRIMARY]
+    CREATE TABLE [Auction].[BidDateRange]
+    (   [Setting] [VARCHAR](70) NOT NULL,
+        [Date] DATETIME NOT NULL,
+    
+    ) ON [PRIMARY]
 
-	ALTER TABLE [Auction].[ProductBid]  WITH CHECK ADD CONSTRAINT [FK_ProductAuctionBid_Customer] FOREIGN KEY([CustomerID])
-	REFERENCES [Sales].[Customer] ([CustomerID])
+INSERT INTO [Auction].[BidDateRange] ([Setting], [Date]) VALUES ('StartBidDate', CAST('20221114' AS datetime))
+INSERT INTO [Auction].[BidDateRange] ([Setting], [Date]) VALUES ('StopBidDate', CAST('20221127' AS datetime))
 
-	ALTER TABLE [Auction].[ProductBid]  WITH CHECK ADD  CONSTRAINT [FK_ProductAuctionBid_Product] FOREIGN KEY([AuctionProductID])
-	REFERENCES [Auction].[Product] ([AuctionProductID])
-
-	PRINT 'The Table ProductBid was created on the Auction Schema.';
 END
 
---------------------------------------------------------------------------------
--- Table Auction.ConfigParameters
---------------------------------------------------------------------------------
-BEGIN
-	CREATE TABLE [Auction].[ThresholdsConfig]
-	(
-		[Setting] [varchar](50) NOT NULL,
-		[Value] [sql_variant] NOT NULL
-	) ON [PRIMARY]
+GO -- Allows the other batch to run
 
-	PRINT 'The Table ThresholdsConfig was created with the default settings on the Auction Schema.';
+/* STORED PROCEDURES 
+uspAddProductToAuction - Store Procedure that adds elegible products for auction */
 
-	-- Pre populate the setting MinIncreaseBid
-	INSERT INTO [Auction].[ThresholdsConfig] ([Setting], [Value]) VALUES ('MinIncreaseBid', CAST(0.05 as money))
-
-	-- Pre populate the setting MaxBidLimit as a percentage relative to the initial product listed price
-	INSERT INTO [Auction].[ThresholdsConfig] ([Setting], [Value]) VALUES ('MaxBidLimit', CAST(1.0 as real))
-END
-GO
-
---------------------------------------------------------------------------------
--- STORED PROCEDURES
---------------------------------------------------------------------------------
--- uspAddProductToAuction
---------------------------------------------------------------------------------
 CREATE OR ALTER PROCEDURE [Auction].[uspAddProductToAuction]
-(
-	@ProductID int,
-	@ExpireDate datetime = NULL,
-	@InitialBidPrice money = NULL
+(  
+    @ProductID INT = NULL,
+    @ExpireDate DATETIME = NULL,
+    @InitialBidPrice MONEY = NULL
 )
+
 AS
--- Variable to store current timestamp
-DECLARE @CurrentTimestamp datetime2 = GETDATE();
--- Variables to store aux values from [Production].[Product]
-DECLARE @P_ProductID int = NULL;
-DECLARE @SellStartDate datetime = NULL;
-DECLARE @SellEndDate datetime = NULL;
-DECLARE @DiscontinuedDate datetime = NULL;
-DECLARE @ProductSubcategoryID int = NULL
-DECLARE @MakeFlag bit = NULL;
--- Variables to store aux values from [Production].[ProductListPriceHistory]
-DECLARE @InitialListPrice money = NULL;
-DECLARE @ActualListPrice money = NULL;
-DECLARE @Min_InitialBidPrice money = NULL;
-DECLARE @Max_InitialBidPrice money = NULL;
--- Variables to store aux values from [Production].[ProductCostHistory]
-DECLARE @ActualStandardCost money = NULL;
+
+DECLARE @SellEndDate DATETIME = NULL
+DECLARE @DiscontinuedDate DATETIME = NULL
+DECLARE @MakeFlag BIT = NULL
+DECLARE @InitialListPrice MONEY = NULL
+DECLARE @MinDefaultBidPrice MONEY = NULL
+DECLARE @MaxDefaultBidPrice MONEY = NULL
+
 BEGIN TRY
-	SELECT  @P_ProductID = [ProductID],
-			 @SellStartDate = [SellStartDate],
-			  @SellEndDate = [SellEndDate],
-			   @DiscontinuedDate = [DiscontinuedDate],
-			    @ProductSubcategoryID = [ProductSubcategoryID],
-			     @MakeFlag = [MakeFlag]
-	FROM
-	(
-	SELECT [ProductID],
-			[SellStartDate],
-			 [SellEndDate],
-			  [DiscontinuedDate],
-				[ProductSubcategoryID],
-				 [MakeFlag]
-	FROM [Production].[Product]
-	WHERE [ProductID] = @ProductID
-	) AS p_p
+    SELECT
+    @MakeFlag = [MakeFlag],
+    @SellEndDate = [SellEndDate],
+    @DiscontinuedDate = [DiscontinuedDate],
+    @InitialListPrice = [ListPrice]
+    FROM (
+        SELECT 
+        [MakeFlag],
+        [SellEndDate],
+        [DiscontinuedDate],
+        [ListPrice]
+        FROM [Production].[Product]
+        WHERE [ProductID] = @ProductID
+        ) AS [Production_Aux]
 
-	-- Check if the @ProductID exists
-	IF @P_ProductID IS NULL
-		BEGIN
-			DECLARE @errormessage1 VARCHAR(150) = 'Error uspAddProductToAuction@ProductID: The submitted @ProductID does not exist.';
-			THROW 50001, @errormessage1, 0;
-		END
+-- Check if ProductID is not valid
+    IF @ProductID IS NULL
+        BEGIN
+            DECLARE @errormessage1 VARCHAR(150) = 'Error: ProductID is not valid.';
+            THROW 50001, @errormessage1, 0;
+        END
 
-	-- Check if the @ProductID is already being auctioned
-	ELSE IF EXISTS (
-					SELECT [ProductID]
-					FROM [Auction].[Product]
-					WHERE [ProductID] = @ProductID 
-						AND [AuctionStatus] = 1
-					) 
-		BEGIN
-			DECLARE @errormessage2 VARCHAR(150) = 'Error uspAddProductToAuction@ProductID: There is already an active auction for the submitted @ProductID.';
-			THROW 50002, @errormessage2, 0;
-		END
+-- Check if the ProductsID exists in Production
+    ELSE IF NOT EXISTS (
+        SELECT [ProductID]
+        FROM [Production].[Product]
+        WHERE [ProductID] = @ProductID)
+            BEGIN
+                DECLARE @errormessage2 VARCHAR(150) = 'Error: ProductID does not exist in the catalog.';
+                THROW 50002, @errormessage2, 0;
+            END
 
-	-- Check if the @ProductID is from a valid category (Product category different than Accessories and non-null)
-	ELSE IF @ProductSubcategoryID IS NULL OR 
-		(
-			(
-				SELECT p_pc.[Name] 
-				FROM [Production].[ProductSubcategory] AS p_ps
-				INNER JOIN [Production].[ProductCategory] AS p_pc
-				ON p_ps.[ProductCategoryID] = p_pc.[ProductCategoryID]
-				WHERE p_ps.[ProductSubcategoryID] = @ProductSubcategoryID
-			) = N'Accessories'
-		)
-		BEGIN
-			DECLARE @errormessage3 VARCHAR(150) = CONCAT('Error uspAddProductToAuction: The product with the ID ', CONVERT(varchar(10), @ProductID), ' is not from a valid Category.');
-			THROW 50003, @errormessage3, 0;
-		END
-	ELSE
-		BEGIN
-		-- Set the default value for the @ExpireDate
-		SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE()));
-		BEGIN
-		IF NOT(@ExpireDate BETWEEN CONVERT(datetime, CONCAT(YEAR(@CurrentTimestamp),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(@CurrentTimestamp),'1207'), 112))
-			BEGIN
-				DECLARE @errormessage4 VARCHAR(200) = 'Error uspAddProductToAuction@ExpireDate: The @ExpireDate can only be placed in the last 2 weeks of November + 1 week margin for the current year.';
-				THROW 50004, @errormessage4, 0;
-			END
-		ELSE
-			BEGIN
-				-- Get the minimum and maximum values for the @InitialBidPrice (considering the @CurrentTimestamp when invoked)
-				SELECT @ActualListPrice = [ListPrice] 
-					FROM
-					(
-						SELECT TOP(1) p_plph.[ListPrice] 
-						FROM [Production].[ProductListPriceHistory] AS p_plph
-						WHERE p_plph.[ProductID] = @ProductID
-							AND (@CurrentTimestamp BETWEEN COALESCE(p_plph.[StartDate], CONVERT(datetime, '20110101', 112)) AND COALESCE(p_plph.[EndDate], CONVERT(datetime, '99991231', 112)))
-						ORDER BY p_plph.[StartDate] DESC
-					) AS temp_ActualListPrice
+-- Check if ProductID is currently being auctioned
+    ELSE IF EXISTS (
+        SELECT [ProductID]
+        FROM [Auction].[ProductInfo]
+        WHERE [ProductID] = @ProductID
+        AND [Active] = 1)
+            BEGIN
+                DECLARE @errormessage3 VARCHAR(150) = 'Error: This product is already being auctioned.';
+                THROW 50003, @errormessage3, 0;
+            END
 
-				SELECT @InitialListPrice = [ListPrice] 
-					FROM
-					(
-						SELECT TOP(1)  p_plph.[ListPrice] 
-						FROM [Production].[ProductListPriceHistory] AS  p_plph
-						WHERE  p_plph.[ProductID] = @ProductID
-						ORDER BY [StartDate] ASC
-					) AS temp_InitialListPrice
-				
-				-- Set the initial bid price based on the @MakeFlag property
-				SELECT @Min_InitialBidPrice = [Min_InitialBidPrice], 
-						@Max_InitialBidPrice = [Max_InitialBidPrice]
-				FROM 
-				( 
-					SELECT
-						CASE WHEN @MakeFlag = 0 
-							THEN @ActualListPrice*0.75
-							ELSE @ActualListPrice*0.5
-						END AS [Min_InitialBidPrice],
-						@ActualListPrice AS [Max_InitialBidPrice]
-				) AS temp_BidPrice;
+    ELSE IF @SellEndDate IS NOT NULL AND @DiscontinuedDate IS NOT NULL
+            BEGIN
+                DECLARE @errormessage4 VARCHAR(150) = 'Error: This product is not being currently commercialized.';
+                THROW 50004, @errormessage4, 0;
+            END
 
-				BEGIN
-					-- Check if the @InitialBidPrice is in the valid range
-					-- Cannot be lower than the minimum bid price
-					IF @InitialBidPrice < @Min_InitialBidPrice
-					BEGIN
-						DECLARE @errormessage5 VARCHAR(150) = CONCAT('Error uspAddProductToAuction@InitialBidPrice: The submitted @InitialBidPrice must be greater than ', CAST(@Min_InitialBidPrice AS VARCHAR(30)),'.');
-						THROW 50005, @errormessage5, 0;
-					END
-					-- Cannot be higher than the maximum bid price
-					ELSE IF @InitialBidPrice > @Max_InitialBidPrice
-						BEGIN
-							DECLARE @errormessage6 VARCHAR(150) = CONCAT('Error uspAddProductToAuction@InitialBidPrice: The submitted @InitialBidPrice must be less than the list price of ', CAST(@Max_InitialBidPrice AS VARCHAR(30)),'.');
-							THROW 50006, @errormessage6, 0;
-						END
-					ELSE
-						BEGIN
-							-- If the @InitialBidPrice was not defined then use the default value @Min_InitialBidPrice
-							SET @InitialBidPrice = COALESCE(@InitialBidPrice, @Min_InitialBidPrice);
-
-							-- Get the @ProductID actual standard cost (considering the @CurrentTimestamp)
-							SELECT @ActualStandardCost = [StandardCost] 
-							FROM
-							(
-								SELECT p_pch.[StandardCost] 
-								FROM [Production].[ProductCostHistory] AS p_pch
-								WHERE p_pch.[ProductID] = @ProductID
-									AND (@CurrentTimestamp BETWEEN p_pch.[StartDate] 
-									AND COALESCE(p_pch.[EndDate], CONVERT(datetime, '99991231', 112)))
-							) AS sc
-
-							-- Check for further Functional Specification requisites
-							-- @ProductID is being commercialized (considering the @CurrentTimestamp)
-							BEGIN
-							IF (@CurrentTimestamp < @SellStartDate) OR (@SellEndDate IS NOT NULL AND @CurrentTimestamp > @SellEndDate) OR (@DiscontinuedDate IS NOT NULL AND @CurrentTimestamp > @DiscontinuedDate)
-								BEGIN
-									DECLARE @errormessage7 VARCHAR(150) = CONCAT('Error uspAddProductToAuction: The product with the ID ',  CONVERT(varchar(10), @ProductID),' is not currently being commercialized @', CONVERT(char(10), @CurrentTimestamp,126), '.');
-									THROW 50007, @errormessage7, 0;
-								END
-
-							-- @ProductID costs more than 50$
-							ELSE IF @ActualStandardCost <= 50
-								BEGIN
-									DECLARE @errormessage8 VARCHAR(150) = CONCAT('Error uspAddProductToAuction: The product with the ID ', CONVERT(varchar(10), @ProductID), ' does not have a cost over 50$ to be eligible for auction.');
-									THROW 50008, @errormessage8, 0;
-								END
-
-							-- Check if the product is available on the inventory
-							ELSE IF NOT EXISTS (SELECT [ProductID]
-										FROM [Production].[ProductInventory]
-										WHERE [ProductID] = @ProductID
-											AND (@CurrentTimestamp > [ModifiedDate])
-											AND [Quantity] >= 1)
-								BEGIN
-									DECLARE @errormessage9 VARCHAR(150) = CONCAT('Error uspAddProductToAuction: The product with the ID ', CONVERT(varchar(10), @ProductID), ' is not available on the inventory @', CONVERT(char(10), @CurrentTimestamp,126), '.');
-									THROW 50009, @errormessage9, 0;
-								END	
-							END
-						END
-				END
-			END
-		END
-	END
+    ELSE 
+        BEGIN
+            -- Set the default value for the @ExpireDate
+            SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE()));
+            BEGIN
+            --IF NOT(@ExpireDate BETWEEN CONVERT(DATETIME, CONCAT(YEAR(GETDATE()),'1117'), 112) AND CONVERT(datetime, CONCAT(YEAR(GETDATE()),'1207'), 112))
+              --  BEGIN
+                --    DECLARE @errormessage5 VARCHAR(150) = 'Error: The timeframe of the auction is invalid.';
+                  --  THROW 50005, @errormessage5, 0;
+                --END
+     
+            BEGIN
+                IF @InitialBidPrice IS NULL
+                SELECT @MinDefaultBidPrice = [MinDefaultBidPrice], @MaxDefaultBidPrice = [MaxDefaultBidPrice]
+                    FROM (
+                    SELECT CASE WHEN @MakeFlag = 0
+                    THEN @InitialListPrice * 0.75
+                    ELSE @InitialListPrice * 0.5
+                    END AS [MinDefaultBidPrice],
+                    [ListPrice] AS [MaxDefaultBidPrice]
+                    FROM [Production].Product
+                    WHERE [ProductID] = @ProductID) AS [DefaultBidPrice]
+            END
+            END
+        END             
+        BEGIN
+            SET @InitialBidPrice = COALESCE(@MinDefaultBidPrice, @MaxDefaultBidPrice, @InitialBidPrice)  -- Colocar exceÃ§Ãµes de Initial Bid Price           
+        END
 BEGIN
-	BEGIN TRANSACTION
-		-- Add @ProductID to auction
-		INSERT INTO [Auction].[Product] 
-		(
-			[ProductID],
-			 [ExpireDate],
-			  [InitialBidPrice],
-			    [InitialListPrice],
-				 [StandardCost] 
-		)
-		VALUES 
-		(
-			@ProductID,
-			 @ExpireDate,
-			  @InitialBidPrice,
-			    @InitialListPrice, 
-				 @ActualStandardCost
-		);
-	COMMIT TRANSACTION
-END
-RETURN
-END TRY
-BEGIN CATCH
-	IF @@TRANCOUNT > 0
-		BEGIN 
-			ROLLBACK TRANSACTION
-		END
-	ELSE
-		BEGIN
-			PRINT ERROR_MESSAGE();
-		END
-END CATCH
-GO
+BEGIN TRANSACTION  [InsertProduct]-- Insert Products into the Auction Product table
+    INSERT INTO [Auction].[ProductInfo]
+    (
+        [ProductID],
+        [ExpireDate],
+        [InitialBidPrice],
+        [InitialListPrice]
 
---------------------------------------------------------------------------------
--- uspTryBidProduct
---------------------------------------------------------------------------------
+    )
+    VALUES (
+        @ProductID, -- ProductID is a mandatory parameter
+        @ExpireDate, -- optional parameter
+        @InitialBidPrice, -- optional parameter
+        @InitialListPrice -- auxiliar parameter
+    );
+    --SELECT @@TRANCOUNT AS OpenTransactions
+COMMIT TRANSACTION [InsertProduct]
+END
+END TRY
+BEGIN CATCH -- Deal with errors in the transaction
+    IF @@TRANCOUNT > 0 -- Check to see if the previous transaction is open
+        BEGIN
+            ROLLBACK TRANSACTION [InsertProduct] -- Undo all the inserts made by the transaction
+        END
+    ELSE 
+        BEGIN
+            PRINT ERROR_MESSAGE() -- Print the error message that is making the Catch block to run if there is no open transactions
+        END
+END CATCH
+
+GO -- Allows the other batch to run
+
+-- uspTryBidProduct - Store Procedure that adds bids to the BidInfo table
+
 CREATE OR ALTER PROCEDURE [Auction].[uspTryBidProduct]
 (
-	@ProductID int,
-	@CustomerID int,
-	@BidAmmount money = NULL
+    @ProductID INT,
+    @CustomerID INT,
+    @BidAmount MONEY = NULL
 )
+
 AS
--- Variable to store current timestamp
-DECLARE @BidTimestamp datetime2 = GETDATE();
--- Variables to store aux values from [Auction].[ThresholdsConfig]
-DECLARE @MinIncreaseBid money = NULL;
-DECLARE @MaxBidLimit real = NULL;
--- Variables to store aux values from [Auction].[Product]
-DECLARE @AuctionProductID int = NULL;
-DECLARE @BidProductID int = NULL;
-DECLARE @ExpireDate datetime = NULL;
-DECLARE @InitialBidPrice money = NULL;
-DECLARE @InitialListPrice money = NULL;
--- Variables to store aux values from [Auction].[ProductBid]
-DECLARE @LatestBid money = NULL;
-DECLARE @Update bit = 0;
+
+DECLARE @AuctionProductID INT = NULL
+DECLARE @BidTimeStamp DATETIME = GETDATE()
+DECLARE @ExpireDate DATETIME
+DECLARE @Active BIT = NULL
+DECLARE @AuctionRemoved BIT = NULL
+DECLARE @StartBidDate DATETIME = NULL
+DECLARE @StopBidDate DATETIME = NULL
+DECLARE @HighestBid FLOAT = NULL
+DECLARE @MinIncreaseBid MONEY = NULL
+DECLARE @MaxIncreaseLimit REAL = NULL
+DECLARE @InitialListPrice MONEY = NULL
+DECLARE @InitialBidPrice MONEY = NULL
+DECLARE @Flag BIT = NULL
+
 BEGIN TRY
-	-- Store the details for @ProductID auction in the aux variables
-	SELECT @AuctionProductID = [AuctionProductID],
-			@BidProductID = [ProductID],
-			 @ExpireDate = [ExpireDate],
-			  @InitialBidPrice = [InitialBidPrice],
-			   @InitialListPrice = [InitialListPrice]
-	FROM
-	(
-	SELECT [AuctionProductID], 
-			[ProductID],
-			 [ExpireDate],
-			  [InitialBidPrice],
-			   [InitialListPrice]
-	FROM [Auction].[Product]
-	WHERE [ProductID] = @ProductID
-		AND [AuctionStatus] = 1
-	) AS temp_Bid
+    SELECT @AuctionProductID = [AuctionProductID],
+            @ProductID = [ProductID],
+            @ExpireDate = [ExpireDate],
+            @Active = [Active], 
+            @AuctionRemoved = [AuctionRemoved],
+            @InitialListPrice = [InitialListPrice],
+            @InitialBidPrice = [InitialBidPrice]
+            
+    FROM(
+        SELECT [AuctionProductID], [ProductID], [ExpireDate], [Active], [AuctionRemoved], [InitialListPrice], [InitialBidPrice]
 
-	BEGIN
-	-- Check if the @ProductID is being auctioned
-	IF @BidProductID IS NULL
-		BEGIN
-			DECLARE @errormessage1 VARCHAR(150) = 'Error uspTryBidProduct@ProductID: The submitted @ProductID is not currently being auctioned.';
-			THROW 50101, @errormessage1, 0;
-		END
-	ELSE
-		BEGIN
-		-- Check if the @CustomerID is valid
-		IF NOT EXISTS (
-			SELECT [CustomerID] 
-			FROM [Sales].[Customer] 
-			WHERE [CustomerID] = @CustomerID
-			)
-			BEGIN
-				DECLARE @errormessage2 VARCHAR(150) = 'Error uspTryBidProduct@CustomerID: The submitted @CustomerID does not exist.';
-				THROW 50102, @errormessage2, 0;
-			END
-		ELSE
-			BEGIN
-			-- Check if the auction has expired for the specified @ProductID
-			IF (@BidTimestamp > @ExpireDate)
-				BEGIN
-					DECLARE @errormessage3 VARCHAR(150) = CONCAT('Error uspTryBidProduct: The Auction for the product with the ID ', CONVERT(varchar(10), @ProductID), ' has expired.');
-					THROW 50103, @errormessage3, 0;
-				END
-			ELSE
-				BEGIN
-					-- Check if there is already a bid made on the product (it does not matter if it was not done by the current customer)
-					SELECT @LatestBid = [BidAmmount]
-					FROM
-					(
-					SELECT TOP(1) [BidAmmount]
-					FROM [Auction].[ProductBid]
-					WHERE [ProductID] = @ProductID
-						AND [AuctionProductID] = @AuctionProductID
-					ORDER BY [BidAmmount] DESC
-					) AS lbid
+        FROM [Auction].[ProductInfo]
+        WHERE [ProductID] = @ProductID
+    ) AS [ProductInfoAux] -- Auxiliar table with variables from the table that contains bid Products
 
-					-- Verify the bid value against the configuration parameters in the ThresholdConfig table
-					SELECT @MinIncreaseBid = CAST([Value] as money) 
-					FROM (SELECT [Value] FROM [Auction].[ThresholdsConfig] 
-					WHERE [Setting] = N'MinIncreaseBid') as q_thresh;
+    SELECT @StartBidDate = [Date]
+    FROM(
+        SELECT [Date]
+        FROM [Auction].[BidDateRange]
+        WHERE [Setting] = 'StartBidDate'
+    ) AS [StartBidDateAux] -- Auxiliar table with variables from the table that contains the start and stop bid dates
 
-					SELECT @MaxBidLimit = CAST([Value] as real) 
-					FROM (SELECT [Value] FROM [Auction].[ThresholdsConfig] 
-					WHERE [Setting] = N'MaxBidLimit') as q_thresh;
-					
-					-- If the bid ammount is not specified (@BidAmmount = NULL) increase the bid by the minimum threshold (@MinIncreaseBid)
-					IF @BidAmmount IS NULL 
-						BEGIN
-						SET @BidAmmount = COALESCE(@LatestBid + @MinIncreaseBid, @InitialBidPrice);
-						END
-					BEGIN
+    SELECT @StopBidDate = [Date]
+        FROM(
+            SELECT [Date]
+            FROM [Auction].[BidDateRange]
+            WHERE [Setting] = 'StopBidDate'
+        ) AS [StopBidDateAux] -- Auxiliar table with variables from the table that contains the start and stop bid dates
 
-					-- Check if the @BidAmmount is within range
-					IF(@BidAmmount > ROUND(@InitialBidPrice + (@MaxBidLimit * @InitialListPrice), 1) + @MinIncreaseBid)
-						BEGIN
-							DECLARE @errormessage4 VARCHAR(150) = 'Error uspTryBidProduct@BidAmount: The @BidAmount should not exceed the maximum limit threshold.';
-							THROW 50104, @errormessage4, 0;
-						END
+    BEGIN
+        IF @AuctionProductID IS NULL 
+            BEGIN
+                DECLARE @errormessage1 VARCHAR(150) = 'Error: The product is not being auctioned.';
+                THROW 51000, @errormessage1, 0;
+            END 
+        ELSE 
+            IF NOT EXISTS (
+                SELECT [CustomerID]
+                FROM [Sales].Customer
+                WHERE [CustomerID] = @CustomerID
+            )
+                BEGIN
+                    DECLARE @errormessage2 VARCHAR(150) = 'Error: The CustomerID is not registered.';
+                    THROW 51001, @errormessage2, 0;
+                END   
+        ELSE IF @BidTimeStamp > @ExpireDate
+            BEGIN
+                DECLARE @errormessage3 VARCHAR(150) = 'Error: This product auction has already ended.';
+                THROW 51002, @errormessage3, 0;
+            END
+        ELSE IF @Active = 0
+            BEGIN
+                DECLARE @errormessage4 VARCHAR(150) = 'Error: The product is no longer being auctioned.';
+                THROW 51003, @errormessage4, 0;
+            END
+        ELSE IF @BidTimeStamp NOT BETWEEN @StartBidDate AND @StopBidDate
+            BEGIN
+                DECLARE @errormessage5 VARCHAR(150) = 'Error: No bids are allowed at this time for this auction.';
+                THROW 51004, @errormessage5, 0;
+            END 
+        ELSE 
+            BEGIN
+                SELECT @HighestBid = [BidAmount]
+                FROM (
+                    SELECT MAX([BidAmount]) AS [BidAmount]
+                    FROM [Auction].[BidInfo]
+                    WHERE [ProductID]=@ProductID AND [AuctionProductID] = @AuctionProductID
+                ) AS [HighestBidAux]
 
-					-- Check if the Maximum Bid Limit (@MaxBidLimit) was reached (and flag the @Update variable)
-					ELSE IF (
-						@BidAmmount BETWEEN ROUND(@InitialBidPrice + (@MaxBidLimit * @InitialListPrice), 1) - @MinIncreaseBid 
-						AND ROUND(@InitialBidPrice + (@MaxBidLimit * @InitialListPrice), 1) + @MinIncreaseBid
-						)
-						BEGIN
-							-- Flag the @Update variable to end the auction
-							SET @Update = 1;
-						END
+                SELECT @MinIncreaseBid = [BidLimit]
+                FROM (
+                    SELECT [BidLimit]
+                    FROM [Auction].[ThresholdSet]
+                    WHERE [Setting] = 'MinIncreaseBid'
+                ) AS [MinIncreaseBidAux]
 
-					-- Check if there is a minimum increase for @BidAmmount
-					ELSE IF @BidAmmount < (COALESCE(@LatestBid + @MinIncreaseBid, @InitialBidPrice))
-						BEGIN
-							DECLARE @errormessage5 VARCHAR(150) = CONCAT('Error uspTryBidProduct@BidAmount: The @BidAmount must respect the minimum increase bid of ', CONVERT(varchar(10), @MinIncreaseBid), '.');
-							THROW 50105, @errormessage5, 0;
-						END
-					END
-				END
-			END
-		END
-	END
+                SELECT @MaxIncreaseLimit = [BidLimit]
+                FROM (
+                    SELECT [BidLimit]
+                    FROM [Auction].[ThresholdSet]
+                    WHERE [Setting] = 'MaxIncreaseLimit'
+                ) AS [MinIncreaseBidAux]
+
+                IF @BidAmount IS NULL
+                    BEGIN
+                        SET @BidAmount = COALESCE(@HighestBid + @MinIncreaseBid, @InitialBidPrice)
+                    END
+                BEGIN
+                    IF @BidAmount < @MinIncreaseBid
+                        BEGIN
+                            DECLARE @errormessage6 VARCHAR(150) = 'Error: Bid Amount is lower than the minimum increase bid allowed.';
+                            THROW 51005, @errormessage6, 0;
+                        END
+
+                    ELSE IF @BidAmount > ((@MaxIncreaseLimit * @InitialListPrice) - @MinIncreaseBid)
+                        BEGIN
+                            SET @Flag = 1
+                        END
+
+                    ELSE IF @BidAmount > (@MaxIncreaseLimit * @InitialListPrice)
+                        BEGIN
+                            DECLARE @errormessage7 VARCHAR(150) = 'Error: Bid Amount is higher than the list price of the product.';
+                            THROW 51006, @errormessage7, 0;
+                        END
+                END
+            END
+    END  
+
 BEGIN
-	BEGIN TRANSACTION
-		-- Bid on behalf of @CustomerID
-		INSERT INTO [Auction].[ProductBid] 
-		(
-			[AuctionProductID],
-			 [ProductID],
-			  [CustomerID],
-			   [BidAmmount],
-			    [BidTimestamp]
-		)
-		VALUES 
-		(
-			@AuctionProductID,
-			 @ProductID,
-			  @CustomerID,
-			   @BidAmmount,
-			    @BidTimestamp
-		);
-		-- End auction for @ProductID if the MaxBidLimit was reached (@Update = 1)
-		IF @Update = 1
-			BEGIN
-				UPDATE [Auction].[Product]
-				SET [AuctionStatus] = 0
-				WHERE [ProductID] = @BidProductID
-					AND [AuctionStatus] = 1;
-			END
-	COMMIT TRANSACTION
+BEGIN TRANSACTION  [InsertBid]-- Insert Products into the Auction Product table
+    INSERT INTO [Auction].[BidInfo]
+    (
+        [AuctionProductID],
+        [ProductID],
+        [CustomerID],
+        [BidAmount],
+        [BidTime]
+
+    )
+    VALUES (
+        @AuctionProductID, -- Identifies the product that is being bid
+        @ProductID, -- ProductID is a mandatory parameter
+        @CustomerID,
+        @BidAmount, -- optional parameter
+        @BidTimeStamp -- auxiliar parameter
+    );
+    IF @Flag = 1
+        BEGIN UPDATE [Auction].ProductInfo
+            SET [Active] = 0
+            WHERE [ProductID] = @ProductID AND [Active] = 1
+        END
+COMMIT TRANSACTION [InsertBid]
 END
-RETURN
 END TRY
-BEGIN CATCH
-	IF @@TRANCOUNT > 0
-		BEGIN 
-			ROLLBACK TRANSACTION
-		END
-	ELSE
-		BEGIN
-			PRINT ERROR_MESSAGE();
-		END
+BEGIN CATCH -- Deal with errors in the transaction
+    IF @@TRANCOUNT > 0 -- Check to see if the previous transaction is open
+        BEGIN
+            ROLLBACK TRANSACTION [InsertBid] -- Undo all the inserts made by the transaction
+        END
+    ELSE 
+        BEGIN
+            PRINT ERROR_MESSAGE() -- Print the error message that is making the Catch block to run if there is no open transactions
+        END
 END CATCH
-GO
 
---------------------------------------------------------------------------------
--- uspRemoveProductFromAuction
---------------------------------------------------------------------------------
+
+-- usp Remove product from auction
+GO
 CREATE OR ALTER PROCEDURE [Auction].[uspRemoveProductFromAuction]
-(
-	@ProductID int
+
+(   
+    @ProductID INT
 )
 AS
 BEGIN TRY
-	BEGIN
-		-- Check if there is any active auction (AuctionStatus = 1) for the specified ProductID
-		IF NOT EXISTS (
-			SELECT [ProductID] 
-			FROM [Auction].[Product] 
-			WHERE [ProductID] = @ProductID AND [AuctionStatus] = 1
-			)
-			BEGIN
-				DECLARE @errormessage1 VARCHAR(150) = 'Error uspRemoveProductFromAuction@ProductID: The submitted @ProductID is not currently being auctioned.';
-				THROW 50201, @errormessage1, 0;
-			END
-		END
-		BEGIN
-			BEGIN TRANSACTION
-				-- Disable the auction (AuctionStatus = 0) and flag it as cancelled (Removed = 1)
-				UPDATE [Auction].[Product]
-				SET [AuctionStatus] = 0,
-					[Removed] = 1
-				WHERE [ProductID] = @ProductID AND [AuctionStatus] = 1;
-			COMMIT TRANSACTION
-	END
-	RETURN
+    -- Check if product is currently being actioned
+    BEGIN
+        IF NOT EXISTS  (SELECT [ProductID] FROM [Auction].[ProductInfo] WHERE [Active] = 1 AND [ProductID] = @ProductID)
+            BEGIN
+                DECLARE @errormessage0 VARCHAR(100) = 'Error: Product inserted is not currently being auctioned.';
+                THROW 52001, @errormessage0, 0;
+            END
+            BEGIN
+                BEGIN TRANSACTION
+                    UPDATE [Auction].[ProductInfo]
+                    SET [Active] = 0,
+                        [AuctionRemoved] = 1
+                    WHERE [Active] = 1 AND [ProductID] = @ProductID
+                COMMIT TRANSACTION
+            END
+    END
+    RETURN
 END TRY
 BEGIN CATCH
-	IF @@TRANCOUNT > 0
-		BEGIN 
-			ROLLBACK TRANSACTION
-		END
-	ELSE
-		BEGIN
-			PRINT ERROR_MESSAGE();
-		END
+    IF @@ROWCOUNT > 0
+        BEGIN  
+            ROLLBACK TRANSACTION
+        END
+    ELSE    
+        BEGIN   
+            PRINT ERROR_MESSAGE()
+        END
 END CATCH
 GO
 
---------------------------------------------------------------------------------
--- uspSearchForAuctionBasedOnProductName
---------------------------------------------------------------------------------
-CREATE OR ALTER PROCEDURE [Auction].[uspSearchForAuctionBasedOnProductName]
-(
-	@Productname nvarchar(50),
-	@StartingOffSet int = 0,
-	@NumberOfRows int = 2147483647
-)
-AS
--- Default Parameters
--- @StartingOffSet: No offset (default is 0)
--- @NumberOfRows: All rows (default is 2147483647 which represents the maximum value for a integer type)
+-- uspListBidsOffersHistory - 
 
--- Apply a wildcard search for @Productname based on its character count.
--- Disable the wildcard search for a character count that contains less than 3 characters.
--- Returns all rows if the previous condition is applicable.
-WITH temp_AucProd AS 
-	(
-		SELECT  a_p.[ProductID],
-				 [Name],
-				  [ProductNumber],
-				   [Color],
-				    [Size],
-					 [SizeUnitMeasureCode],
-					  [WeightUnitMeasureCode],
-					   [Weight],
-					    [Style],
-						 [ProductSubcategoryID],
-						  [ProductModelID],
-							cbid.CurrentBid,
-								CASE
-								WHEN a_p.[Removed] = 1 THEN 'Canceled Auction'
-								WHEN a_p.[AuctionStatus] = 0 THEN 'Closed Auction'
-								ELSE 'Active Auction'
-								END AS AuctionStatus
-		FROM [Auction].[Product] AS a_p
-		LEFT JOIN [Production].[Product] AS p_p
-		ON a_p.ProductID = p_p.[ProductID]
-		LEFT JOIN 
-			(
-			-- Get the current bid
-			SELECT 
-				[AuctionProductID]
-				,MAX([BidAmmount]) AS CurrentBid
-			FROM [Auction].[ProductBid]
-			GROUP BY [AuctionProductID]
-			) AS cbid
-		ON a_p.[AuctionProductID] = cbid.[AuctionProductID]
-		-- Apply wildcard search if character count of @Productname is greater or equal than 3
-		WHERE (LEN(@Productname) < 3) OR ([Name] LIKE N'%' + @Productname + '%')
-	),
-		-- Total number of entries ignoring @StartingOffset and @NumberOfRows
-		TotalCount AS (
-						SELECT COUNT([ProductID]) AS TotalCount 
-						FROM temp_AucProd
-						)
-SELECT *
-FROM temp_AucProd, TotalCount
-ORDER BY [ProductID]
-OFFSET @StartingOffSet ROWS
-FETCH NEXT @NumberOfRows ROWS ONLY;
-BEGIN
-	-- Display a warning to inform that wildcard search was not applied (due to @Productname character count).
-	IF LEN(@Productname) < 3
-		BEGIN
-			PRINT N'All results were returned. Wildcard search are not acceptable for @Productname with less than 3 characters.'
-		END
-	END
-GO
-
---------------------------------------------------------------------------------
--- uspListBidsOffersHistory
---------------------------------------------------------------------------------
 CREATE OR ALTER PROCEDURE [Auction].[uspListBidsOffersHistory]
 (
-	@CustomerID int,
-	@StartTime datetime,
-	@EndTime datetime,
-	@Active bit = 1
+    @CustomerID INT,
+    @StartTime DATETIME,
+    @StopTime DATETIME,
+    @Active BIT = 1
 )
 AS
+
 BEGIN TRY
-	BEGIN
-	-- Check if there are any bids from CustomerID
-	IF NOT EXISTS (
-		SELECT [CustomerID] 
-		FROM [Auction].[ProductBid] 
-		WHERE [CustomerID] = @CustomerID
-		)
-		BEGIN
-			DECLARE @errormessage1 VARCHAR(150) = 'Error uspListBidsOffersHistory@CustomerID: The submitted @CustomerID did not make any bid.';
-			THROW 50401, @errormessage1, 0;
-		END
-	-- Check for a valid time range (@EndTime > @StartTime)
-	ELSE IF @EndTime <= @StartTime
-		BEGIN
-			DECLARE @errormessage2 VARCHAR(150) = 'Error uspListBidsOffersHistory@StartTime & @EndTime: The @EndTime must be greater than the @StartTime.';
-			THROW 50402, @errormessage2, 0;
-		END
-	ELSE
-		BEGIN
-			-- Return customer bid history sorted by date (BidTimestamp)
-			-- @Active = 1 returns active auctions
-			-- @Active = 0 returns all auctions
-			SELECT  a_pb.[AuctionProductID],
-					 a_pb.[ProductID],
-					  [CustomerID],
-					   [BidAmmount],
-					    [BidTimestamp],
-						CASE
-							WHEN a_p.[Removed] = 1 THEN 'Canceled Auction'
-							WHEN a_p.[AuctionStatus] = 0 THEN 'Closed Auction'
-						ELSE 'Active Auction'
-						END AS AuctionStatus
-			FROM [Auction].[ProductBid] as a_pb
-			LEFT JOIN [Auction].[Product] as a_p
-			ON a_pb.[AuctionProductID] = a_p.[AuctionProductID]
-			WHERE a_pb.[CustomerID] = @CustomerID AND
-				(a_pb.[BidTimestamp] BETWEEN @StartTime AND @EndTime) AND
-				(a_p.[AuctionStatus] = @Active OR @Active = 0)
-			ORDER BY [BidTimestamp] DESC;
-		END
-	END
-RETURN
+    BEGIN
+        IF NOT EXISTS (
+            SELECT @CustomerID
+            FROM [Auction].[BidInfo]
+            WHERE @CustomerID = [CustomerID]
+        )
+        BEGIN
+            DECLARE @errormessage0 VARCHAR(100) = 'Error: The inserted CustomerID has not made a bid.';
+            THROW 53001, @errormessage0, 0;
+        END
+        
+        ELSE IF @StartTime >= @StopTime
+            BEGIN
+                DECLARE @errormessage1 VARCHAR(100) = 'Error: The inserted StopTime has to be later than the StartTime.';
+                THROW 53002, @errormessage1, 0;
+            END
+
+        ELSE IF @Active = 1
+            BEGIN
+                SELECT [CustomerID],
+                        a_bi.[ProductID],
+                         a_bi.[AuctionProductID],
+                          [BidAmount],
+                           [BidTime],
+                            a_pi.[Active]
+                FROM [Auction].[BidInfo] AS a_bi
+                INNER JOIN [Auction].[ProductInfo] AS a_pi
+                ON a_bi.[AuctionProductID] = a_pi.[AuctionProductID]
+                WHERE [CustomerID] = @CustomerID AND ([BidTime] BETWEEN @StartTime AND @StopTime) AND [Active] = 1
+            END
+        ELSE
+            BEGIN
+                SELECT [CustomerID],
+                        a_bi.[ProductID],
+                         a_bi.[AuctionProductID],
+                          [BidAmount],
+                           [BidTime],
+                            a_pi.[Active]
+                FROM [Auction].[BidInfo] AS a_bi
+                INNER JOIN [Auction].[ProductInfo] AS a_pi
+                ON a_bi.[AuctionProductID] = a_pi.[AuctionProductID]
+                WHERE [CustomerID] = @CustomerID AND ([BidTime] BETWEEN @StartTime AND @StopTime)
+            END
+    END
 END TRY
-BEGIN CATCH
-	IF @@TRANCOUNT > 0
-		BEGIN 
-			ROLLBACK TRANSACTION
-		END
-	ELSE
-		BEGIN
-			PRINT ERROR_MESSAGE();
-		END
+BEGIN CATCH -- Deal with errors in the transaction
+    IF @@TRANCOUNT > 0 -- Check to see if the previous transaction is open
+        BEGIN
+            ROLLBACK TRANSACTION [InsertBid] -- Undo all the inserts made by the transaction
+        END
+    ELSE 
+        BEGIN
+            PRINT ERROR_MESSAGE() -- Print the error message that is making the Catch block to run if there is no open transactions
+        END
 END CATCH
+
 GO
---------------------------------------------------------------------------------
 -- uspUpdateProductAuctionStatus
---------------------------------------------------------------------------------
 CREATE OR ALTER PROCEDURE [Auction].[uspUpdateProductAuctionStatus]
 AS
-	-- Check for active auctions (AuctionStatus = 1) and close the ones that expired (ExpireDate)
-	UPDATE [Auction].[Product]
-	SET [AuctionStatus] = 0
-	WHERE [AuctionStatus] = 1 
+	-- Check for active auctions (Active = 1) and close the ones that have expired
+	UPDATE [Auction].[ProductInfo]
+	SET [Active] = 0
+	WHERE [Active] = 1 
 		AND GETDATE() > [ExpireDate];
 GO
 --------------------------------------------------------------------------------
+
