@@ -153,7 +153,18 @@ BEGIN TRY
                 THROW 50004, @errormessage4, 0;
             END
 
-    ELSE 
+    ELSE IF @InitialBidPrice IS NOT NULL AND @InitialBidPrice > @InitialListPrice
+            BEGIN 
+                DECLARE @errormessage5 VARCHAR(150) = 'Error: The initial bid price must be lower than the list price.';
+                THROW 50005, @errormessage5, 0;
+            END
+    ELSE IF @InitialBidPrice IS NOT NULL AND @InitialBidPrice <= (@InitialListPrice * 0.5)
+            BEGIN
+                DECLARE @errormessage6 VARCHAR(150) = 'Error: The initial bid price must be higher or equal to the minimum bid price.';
+                THROW 50006, @errormessage6, 0;
+            END
+
+    ELSE
         BEGIN
             -- Set the default value for the @ExpireDate
             SET @ExpireDate = COALESCE(@ExpireDate, DATEADD(WEEK,1,GETDATE()));
@@ -177,12 +188,13 @@ BEGIN TRY
                     WHERE [ProductID] = @ProductID) AS [DefaultBidPrice]
             END
             END
-        END             
+        END 
+            
         BEGIN
             SET @InitialBidPrice = COALESCE(@MinDefaultBidPrice, @MaxDefaultBidPrice, @InitialBidPrice)  -- Colocar exceções de Initial Bid Price           
         END
 BEGIN
-BEGIN TRANSACTION  [InsertProduct]-- Insert Products into the Auction Product table
+BEGIN TRANSACTION  [InsertProduct] -- Insert Products into the Auction Product table
     INSERT INTO [Auction].[ProductInfo]
     (
         [ProductID],
@@ -300,6 +312,12 @@ BEGIN TRY
                 DECLARE @errormessage5 VARCHAR(150) = 'Error: No bids are allowed at this time for this auction.';
                 THROW 51004, @errormessage5, 0;
             END 
+        ELSE IF @BidAmount IS NOT NULL AND @BidAmount > @InitialListPrice
+            BEGIN
+                DECLARE @errormessage6 VARCHAR(150) = 'Error: Bid is higher than the list price of the product.';
+                THROW 51005, @errormessage6, 0;
+            END 
+
         ELSE 
             BEGIN
                 SELECT @HighestBid = [BidAmount]
@@ -330,8 +348,8 @@ BEGIN TRY
                 BEGIN
                     IF @BidAmount < @MinIncreaseBid
                         BEGIN
-                            DECLARE @errormessage6 VARCHAR(150) = 'Error: Bid Amount is lower than the minimum increase bid allowed.';
-                            THROW 51005, @errormessage6, 0;
+                            DECLARE @errormessage7 VARCHAR(150) = 'Error: Bid Amount is lower than the minimum increase bid allowed.';
+                            THROW 51006, @errormessage7, 0;
                         END
 
                     ELSE IF @BidAmount > ((@MaxIncreaseLimit * @InitialListPrice) - @MinIncreaseBid)
@@ -341,8 +359,8 @@ BEGIN TRY
 
                     ELSE IF @BidAmount > (@MaxIncreaseLimit * @InitialListPrice)
                         BEGIN
-                            DECLARE @errormessage7 VARCHAR(150) = 'Error: Bid Amount is higher than the list price of the product.';
-                            THROW 51006, @errormessage7, 0;
+                            DECLARE @errormessage8 VARCHAR(150) = 'Error: Bid Amount is higher than the list price of the product.';
+                            THROW 51007, @errormessage8, 0;
                         END
                 END
             END
