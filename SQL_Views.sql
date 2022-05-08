@@ -1,3 +1,7 @@
+USE AdventureWorks2019
+
+GO
+
 CREATE OR ALTER VIEW Auction.RevenueSubtotal
 AS
 (
@@ -62,7 +66,7 @@ GO
 
 CREATE OR ALTER VIEW Auction.StoreGrossMargin
 AS (
-    SELECT A.StoreID, SUM(A.TotalGrossMargin) AS GrossMargin, C.City, D.CountryRegionCode
+    SELECT A.StoreID, SUM(A.TotalGrossMargin) AS GrossMargin, C.City, D.CountryRegionCode, D.StateProvinceCode, D.StateProvinceID
     FROM Auction.OrderGrossMargin AS A 
     LEFT JOIN Person.BusinessEntityAddress AS B 
     ON A.StoreID = B.BusinessEntityID
@@ -71,8 +75,27 @@ AS (
     LEFT JOIN Person.StateProvince AS D
     ON D.StateProvinceID = C.StateProvinceID
 
-    GROUP BY StoreID, City, CountryRegionCode
+    GROUP BY StoreID, City, CountryRegionCode, D.StateProvinceID, StateProvinceCode
     HAVING CountryRegionCode = 'US'
     --ORDER BY GrossMargin DESC
 
 )
+
+GO
+
+CREATE OR ALTER VIEW Auction.StoreNetMargin
+AS(
+
+    SELECT A.*, B.TaxRate, (A.GrossMargin * (1- (B.TaxRate / 100))) AS NetMargin
+    FROM Auction.StoreGrossMargin AS A 
+    LEFT JOIN Sales.SalesTaxRate AS B 
+    ON (A.StateProvinceID = B.StateProvinceID)
+)
+
+GO
+
+SELECT City, SUM(NetMargin) AS NetMargin_per_City
+
+FROM Auction.StoreNetMargin
+GROUP BY City
+ORDER by Sum(NetMargin) DESC
